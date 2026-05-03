@@ -1,0 +1,10 @@
+{
+  "name": "irfane-notifications",
+  "version": "1.0.0",
+  "description": "Webhook alert receiver for Irfane Smart City Digital Twin",
+  "main": "webhook.js",
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0"
+  }
+}

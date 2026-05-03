@@ -1,0 +1,264 @@
+services:
+
+  # ─────────────────────────────────────────────────────────────
+  # MongoDB -- shared by Orion, IoT Agent, and Perseo
+  # ─────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:6
+    container_name: idt-mongo
+    restart: unless-stopped
+    command: --nojournal
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # Orion Context Broker
+  # ─────────────────────────────────────────────────────────────
+  orion:
+    image: fiware/orion:3.10.1
+    container_name: idt-orion
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "1026:1026"
+    command: -dbhost mongo -logLevel DEBUG -noCache
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1026/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  # ─────────────────────────────────────────────────────────────
+  # Mosquitto -- MQTT broker
+  # ─────────────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: idt-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto-data:/mosquitto/data
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1883 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # IoT Agent JSON -- translates MQTT JSON to NGSI-v2
+  # ─────────────────────────────────────────────────────────────
+  iot-agent:
+    image: fiware/iotagent-json:1.26.0
+    container_name: idt-iot-agent
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      orion:
+        condition: service_healthy
+    ports:
+      - "4041:4041"   # North port (provisioning API)
+      - "7896:7896"   # South port (HTTP transport, unused but exposed)
+    environment:
+      - IOTA_CB_HOST=orion
+      - IOTA_CB_PORT=1026
+      - IOTA_NORTH_PORT=4041
+      - IOTA_REGISTRY_TYPE=mongodb
+      - IOTA_LOG_LEVEL=DEBUG
+      - IOTA_TIMESTAMP=true
+      - IOTA_CB_NGSI_VERSION=v2
+      - IOTA_AUTOCAST=true
+      - IOTA_MONGO_HOST=mongo
+      - IOTA_MONGO_PORT=27017
+      - IOTA_MONGO_DB=iotagentjson
+      - IOTA_MQTT_HOST=mosquitto
+      - IOTA_MQTT_PORT=1883
+      - IOTA_DEFAULT_RESOURCE=/iot/json
+      - IOTA_DEFAULT_KEY=irfane2024
+      - IOTA_PROVIDER_URL=http://iot-agent:4041
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:4041/iot/about || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # TimescaleDB -- time-series storage
+  # ─────────────────────────────────────────────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: idt-timescaledb
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=quantumleap
+      - POSTGRES_PASSWORD=quantumleap
+      - POSTGRES_DB=quantumleap
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantumleap"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # QuantumLeap -- time-series historian
+  # ─────────────────────────────────────────────────────────────
+  quantumleap:
+    image: fiware/quantum-leap:0.8.3
+    container_name: idt-quantumleap
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      orion:
+        condition: service_healthy
+    ports:
+      - "8668:8668"
+    environment:
+      - QL_DEFAULT_DB=timescale
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB_NAME=quantumleap
+      - POSTGRES_DB_USER=quantumleap
+      - POSTGRES_DB_PASS=quantumleap
+      - USE_GEOCODING=False
+      - CACHE_QUERIES=False
+      - LOGLEVEL=DEBUG
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8668/version"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # Perseo Core -- CEP rules engine (Java backend)
+  # ─────────────────────────────────────────────────────────────
+  perseo-core:
+    image: fiware/perseo-core:latest
+    container_name: idt-perseo-core
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      - PERSEO_FE_URL=http://perseo-fe:9090
+      - MAX_AGE=6000
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/perseo-core/version"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # Perseo FE -- rules API + action executor (Node.js frontend)
+  # ─────────────────────────────────────────────────────────────
+  perseo-fe:
+    image: fiware/perseo:latest
+    container_name: idt-perseo-fe
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      perseo-core:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+    environment:
+      - PERSEO_MONGO_ENDPOINT=mongo
+      - PERSEO_CORE_URL=http://perseo-core:8080
+      - PERSEO_ORION_URL=http://orion:1026/
+      - PERSEO_LOG_LEVEL=debug
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/version"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # Webhook Receiver -- Express alert receiver (JavaScript)
+  # ─────────────────────────────────────────────────────────────
+  webhook:
+    build:
+      context: ./notifications
+      dockerfile: Dockerfile
+    container_name: idt-webhook
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      - LOG_LEVEL=info
+      - ORION_URL=http://orion:1026
+      - PERSEO_URL=http://perseo-fe:9090
+      - WEBHOOK_URL=http://webhook:5050
+      - FIWARE_SERVICE=irfane
+      - FIWARE_SERVICEPATH=/smartcity
+    networks:
+      - idt-net
+
+  # ─────────────────────────────────────────────────────────────
+  # Sensor Simulator -- Python (publishes to MQTT)
+  # ─────────────────────────────────────────────────────────────
+  simulator:
+    build:
+      context: ./simulators
+      dockerfile: Dockerfile
+    container_name: idt-simulator
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      orion:
+        condition: service_healthy
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_APIKEY=irfane2024
+      - IOTA_URL=http://iot-agent:4041
+      - ORION_URL=http://orion:1026
+      - FIWARE_SERVICE=irfane
+      - FIWARE_SERVICEPATH=/smartcity
+      - TICK_INTERVAL_MS=5000
+      - LOG_LEVEL=info
+    networks:
+      - idt-net
+
+volumes:
+  mongo-data:
+  timescale-data:
+  mosquitto-data:
+
+networks:
+  idt-net:
+    driver: bridge
