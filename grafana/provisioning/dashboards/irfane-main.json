@@ -1,0 +1,340 @@
+{
+  "title": "Irfane Smart City",
+  "uid": "irfane-main",
+  "tags": ["irfane", "smart-city"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Traffic flow — all intersections",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "short",
+          "displayName": "${__field.labels.metric}"
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", 'Allal Al Fassi' AS metric, attrvalue::float AS value FROM irfane.smartcity_trafficsensor_irfane_001_trafficflowobserved WHERE attrname = 'vehicleFlowRate' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", 'Mehdi Ben Barka' AS metric, attrvalue::float AS value FROM irfane.smartcity_trafficsensor_irfane_002_trafficflowobserved WHERE attrname = 'vehicleFlowRate' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "B"
+        },
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", 'Rondpoint Ambassadeurs' AS metric, attrvalue::float AS value FROM irfane.smartcity_trafficsensor_irfane_003_trafficflowobserved WHERE attrname = 'vehicleFlowRate' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "C"
+        },
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", 'Abderrahim Bouabid' AS metric, attrvalue::float AS value FROM irfane.smartcity_trafficsensor_irfane_004_trafficflowobserved WHERE attrname = 'vehicleFlowRate' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Temperature",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#d97706", "mode": "fixed" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "celsius"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", attrvalue::float AS value FROM irfane.smartcity_weatherstation_irfane_001_weatherobserved WHERE attrname = 'temperature' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Air quality — PM2.5",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#be185d", "mode": "fixed" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 12 },
+              { "color": "orange", "value": 35 },
+              { "color": "red", "value": 55 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", attrvalue::float AS value FROM irfane.smartcity_airquality_irfane_001_airqualityobserved WHERE attrname = 'pm25' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Noise level",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#b45309", "mode": "fixed" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 55 },
+              { "color": "red", "value": 65 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", attrvalue::float AS value FROM irfane.smartcity_noise_irfane_001_noisepollutionobserved WHERE attrname = 'noiseLevel' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Soil moisture — green spaces",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#16a34a", "mode": "fixed" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "green", "value": 50 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", attrvalue::float AS value FROM irfane.smartcity_greenspace_irfane_001_greenspacerecord WHERE attrname = 'soilMoisture' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Tramway speed",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8 },
+          "unit": "velocitykmh"
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", 'T1 → Agdal' AS metric, attrvalue::float AS value FROM irfane.smartcity_tramway_rabat_t1_001_vehicle WHERE attrname = 'speed' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", 'T1 → Hay Karima' AS metric, attrvalue::float AS value FROM irfane.smartcity_tramway_rabat_t1_002_vehicle WHERE attrname = 'speed' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Parking occupancy %",
+      "type": "bargauge",
+      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "displayMode": "gradient",
+        "minVizWidth": 0,
+        "minVizHeight": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT 'Allal Al Fassi' AS metric, attrvalue::float * 100 AS value FROM irfane.smartcity_parking_irfane_001_offstreetparking WHERE attrname = 'occupancyRate' ORDER BY recvtime DESC LIMIT 1",
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT 'Ibn Sina' AS metric, attrvalue::float * 100 AS value FROM irfane.smartcity_parking_irfane_002_offstreetparking WHERE attrname = 'occupancyRate' ORDER BY recvtime DESC LIMIT 1",
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT 'Hay Riad Centre' AS metric, attrvalue::float * 100 AS value FROM irfane.smartcity_parking_irfane_003_offstreetparking WHERE attrname = 'occupancyRate' ORDER BY recvtime DESC LIMIT 1",
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT 'Ambassadeurs' AS metric, attrvalue::float * 100 AS value FROM irfane.smartcity_parking_irfane_004_offstreetparking WHERE attrname = 'occupancyRate' ORDER BY recvtime DESC LIMIT 1",
+          "format": "table",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Wind speed",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 22, "w": 8, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#0ea5e9", "mode": "fixed" },
+          "custom": { "lineWidth": 2, "fillOpacity": 8 },
+          "unit": "velocitykmh"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", attrvalue::float AS value FROM irfane.smartcity_weatherstation_irfane_001_weatherobserved WHERE attrname = 'windSpeed' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Street lighting — intensity",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 22, "w": 8, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#f59e0b", "mode": "fixed" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", attrvalue::float AS value FROM irfane.smartcity_lighting_irfane_001_streetlightcontrolcabinet WHERE attrname = 'intensity' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Humidity",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 22, "w": 8, "h": 7 },
+      "datasource": "PostgreSQL (Cygnus Archive)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#2563eb", "mode": "fixed" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL (Cygnus Archive)",
+          "rawQuery": true,
+          "rawSql": "SELECT recvtime::timestamp AS \"time\", attrvalue::float AS value FROM irfane.smartcity_weatherstation_irfane_001_weatherobserved WHERE attrname = 'relativeHumidity' AND recvtime::timestamp >= $__timeFrom() AND recvtime::timestamp <= $__timeTo() ORDER BY time ASC",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

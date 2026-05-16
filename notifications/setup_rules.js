@@ -218,6 +218,86 @@ async function setupSubscriptions() {
   await createPerseoSubscription("WeatherObserved",     ["temperature", "relativeHumidity", "windSpeed"]);
   await createPerseoSubscription("GreenSpaceRecord",    ["soilMoisture", "grassCondition", "needsIrrigation"]);
   await createPerseoSubscription("Vehicle",             ["speed", "vehicleRunningStatus", "passengerCount"]);
+  await createPerseoSubscription("OffStreetParking",    ["availableSpotNumber", "status"]);
+  await createPerseoSubscription("AirQualityObserved",  ["pm25", "no2", "airQualityIndex"]);
+  await createPerseoSubscription("NoisePollutionObserved", ["noiseLevel"]);
+}
+
+
+async function setupParkingRules() {
+  log.info("Setting up parking rules...");
+
+  // Parking lot full
+  await createRule(
+    "parking_full_alert",
+    `select *,"OffStreetParking" as entityType ` +
+    `from pattern [every ev=iotEvent(` +
+    `type="OffStreetParking" and ` +
+    `cast(cast(ev.availableSpotNumber?,double),double)<1)]`,
+    webhookAction("parking_full", "OffStreetParking", "Parking lot is completely full")
+  );
+
+  // Parking almost full (< 10 spots)
+  await createRule(
+    "parking_almost_full_alert",
+    `select *,"OffStreetParking" as entityType ` +
+    `from pattern [every ev=iotEvent(` +
+    `type="OffStreetParking" and ` +
+    `cast(cast(ev.availableSpotNumber?,double),double)<10)]`,
+    webhookAction("parking_almost_full", "OffStreetParking", "Parking lot almost full - fewer than 10 spots")
+  );
+}
+
+async function setupAirQualityRules() {
+  log.info("Setting up air quality rules...");
+
+  // High PM2.5
+  await createRule(
+    "high_pm25_alert",
+    `select *,"AirQualityObserved" as entityType ` +
+    `from pattern [every ev=iotEvent(` +
+    `type="AirQualityObserved" and ` +
+    `cast(cast(ev.pm25?,double),double)>35)]`,
+    webhookAction("high_pm25", "AirQualityObserved", "PM2.5 above 35 µg/m³ - unhealthy for sensitive groups")
+  );
+
+  // High NO2
+  await createRule(
+    "high_no2_alert",
+    `select *,"AirQualityObserved" as entityType ` +
+    `from pattern [every ev=iotEvent(` +
+    `type="AirQualityObserved" and ` +
+    `cast(cast(ev.no2?,double),double)>100)]`,
+    webhookAction("high_no2", "AirQualityObserved", "NO2 above 100 µg/m³")
+  );
+}
+
+async function setupNoiseRules() {
+  log.info("Setting up noise rules...");
+
+  // High noise level
+  await createRule(
+    "high_noise_alert",
+    `select *,"NoisePollutionObserved" as entityType ` +
+    `from pattern [every ev=iotEvent(` +
+    `type="NoisePollutionObserved" and ` +
+    `cast(cast(ev.noiseLevel?,double),double)>70)]`,
+    webhookAction("high_noise", "NoisePollutionObserved", "Noise level above 70 dB")
+  );
+}
+
+async function setupWindRules() {
+  log.info("Setting up wind speed rules...");
+
+  // High wind speed
+  await createRule(
+    "high_wind_alert",
+    `select *,"WeatherObserved" as entityType ` +
+    `from pattern [every ev=iotEvent(` +
+    `type="WeatherObserved" and ` +
+    `cast(cast(ev.windSpeed?,double),double)>35)]`,
+    webhookAction("high_wind", "WeatherObserved", "Wind speed above 35 km/h")
+  );
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -236,6 +316,10 @@ async function main() {
   await setupWeatherRules();
   await setupGreenSpaceRules();
   await setupTramwayRules();
+  await setupParkingRules();
+  await setupAirQualityRules();
+  await setupNoiseRules();
+  await setupWindRules();
 
   // Print summary
   try {

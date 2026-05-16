@@ -1,8 +1,5 @@
 services:
 
-  # ─────────────────────────────────────────────────────────────
-  # MongoDB -- shared by Orion, IoT Agent, and Perseo
-  # ─────────────────────────────────────────────────────────────
   mongo:
     image: mongo:6
     container_name: idt-mongo
@@ -18,9 +15,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # ─────────────────────────────────────────────────────────────
-  # Orion Context Broker
-  # ─────────────────────────────────────────────────────────────
   orion:
     image: fiware/orion:3.10.1
     container_name: idt-orion
@@ -39,9 +33,6 @@ services:
       timeout: 5s
       retries: 15
 
-  # ─────────────────────────────────────────────────────────────
-  # Mosquitto -- MQTT broker
-  # ─────────────────────────────────────────────────────────────
   mosquitto:
     image: eclipse-mosquitto:2.0
     container_name: idt-mosquitto
@@ -59,9 +50,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # ─────────────────────────────────────────────────────────────
-  # IoT Agent JSON -- translates MQTT JSON to NGSI-v2
-  # ─────────────────────────────────────────────────────────────
   iot-agent:
     image: fiware/iotagent-json:1.26.0
     container_name: idt-iot-agent
@@ -74,8 +62,7 @@ services:
       orion:
         condition: service_healthy
     ports:
-      - "4041:4041"   # North port (provisioning API)
-      - "7896:7896"   # South port (HTTP transport, unused but exposed)
+      - "4041:4041"
     environment:
       - IOTA_CB_HOST=orion
       - IOTA_CB_PORT=1026
@@ -101,50 +88,41 @@ services:
       timeout: 10s
       retries: 10
 
-  # ─────────────────────────────────────────────────────────────
-  # TimescaleDB -- time-series storage
-  # ─────────────────────────────────────────────────────────────
-  timescaledb:
-    image: timescale/timescaledb:latest-pg14
-    container_name: idt-timescaledb
+  cratedb:
+    image: crate:4.8
+    container_name: idt-cratedb
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "4200:4200"
     volumes:
-      - timescale-data:/var/lib/postgresql/data
+      - cratedb-data:/data
+    command: crate -Cnetwork.host=0.0.0.0 -Cdiscovery.type=single-node -Cauth.host_based.enabled=false
     environment:
-      - POSTGRES_USER=quantumleap
-      - POSTGRES_PASSWORD=quantumleap
-      - POSTGRES_DB=quantumleap
+      - CRATE_HEAP_SIZE=512m
     networks:
       - idt-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U quantumleap"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "curl -sf http://localhost:4200/ || exit 1"]
+      interval: 20s
+      timeout: 15s
+      start_period: 30s
       retries: 10
 
-  # ─────────────────────────────────────────────────────────────
-  # QuantumLeap -- time-series historian
-  # ─────────────────────────────────────────────────────────────
   quantumleap:
-    image: fiware/quantum-leap:0.8.3
+    image: orchestracities/quantumleap:latest
     container_name: idt-quantumleap
     restart: unless-stopped
     depends_on:
-      timescaledb:
+      cratedb:
         condition: service_healthy
       orion:
         condition: service_healthy
     ports:
       - "8668:8668"
     environment:
-      - QL_DEFAULT_DB=timescale
-      - POSTGRES_HOST=timescaledb
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB_NAME=quantumleap
-      - POSTGRES_DB_USER=quantumleap
-      - POSTGRES_DB_PASS=quantumleap
+      - QL_DEFAULT_DB=crate
+      - CRATE_HOST=cratedb
+      - CRATE_PORT=4200
       - USE_GEOCODING=False
       - CACHE_QUERIES=False
       - LOGLEVEL=DEBUG
@@ -156,9 +134,6 @@ services:
       timeout: 10s
       retries: 10
 
-  # ─────────────────────────────────────────────────────────────
-  # Perseo Core -- CEP rules engine (Java backend)
-  # ─────────────────────────────────────────────────────────────
   perseo-core:
     image: fiware/perseo-core:latest
     container_name: idt-perseo-core
@@ -179,9 +154,6 @@ services:
       timeout: 10s
       retries: 10
 
-  # ─────────────────────────────────────────────────────────────
-  # Perseo FE -- rules API + action executor (Node.js frontend)
-  # ─────────────────────────────────────────────────────────────
   perseo-fe:
     image: fiware/perseo:latest
     container_name: idt-perseo-fe
@@ -207,8 +179,122 @@ services:
       retries: 10
 
   # ─────────────────────────────────────────────────────────────
-  # Webhook Receiver -- Express alert receiver (JavaScript)
+  # MySQL -- Keyrock persistence
   # ─────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: idt-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=keyrock_root
+      - MYSQL_DATABASE=idm
+      - MYSQL_USER=idm
+      - MYSQL_PASSWORD=idm_pass
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "idm", "-pidm_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  # ─────────────────────────────────────────────────────────────
+  # Keyrock IDM -- identity management
+  # ─────────────────────────────────────────────────────────────
+  keyrock:
+    image: fiware/idm:8.3.3
+    container_name: idt-keyrock
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "3005:3005"
+    environment:
+      - IDM_DB_HOST=mysql
+      - IDM_DB_PORT=3306
+      - IDM_DB_NAME=idm
+      - IDM_DB_USER=idm
+      - IDM_DB_PASS=idm_pass
+      - IDM_HOST=http://localhost:3005
+      - IDM_PORT=3005
+      - IDM_HTTPS_ENABLED=false
+      - IDM_CORS_ENABLED=true
+      - IDM_CORS_ORIGIN=*
+      - IDM_ADMIN_USER=admin
+      - IDM_ADMIN_EMAIL=admin@irfane.ma
+      - IDM_ADMIN_PASS=admin1234
+      - IDM_SESSION_SECRET=irfane_session_secret_2024
+      - IDM_ENCRYPTION_KEY=irfane_encrypt_key_2024
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3005/version"]
+      interval: 20s
+      timeout: 5s
+      start_period: 90s
+      retries: 15
+
+
+  # ─────────────────────────────────────────────────────────────
+  # PostgreSQL -- Cygnus long-term archive storage
+  # ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: idt-postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=cygnus
+      - POSTGRES_PASSWORD=cygnus
+      - POSTGRES_DB=cygnus
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cygnus"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # Cygnus -- FIWARE data sink / archiver
+  # ─────────────────────────────────────────────────────────────
+  cygnus:
+    image: fiware/cygnus-ngsi:latest
+    container_name: idt-cygnus
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orion:
+        condition: service_healthy
+    ports:
+      - "5055:5055"
+      - "5080:5080"
+    environment:
+      - CYGNUS_POSTGRESQL_HOST=postgres
+      - CYGNUS_POSTGRESQL_PORT=5432
+      - CYGNUS_POSTGRESQL_USER=cygnus
+      - CYGNUS_POSTGRESQL_PASS=cygnus
+      - CYGNUS_POSTGRESQL_DATABASE=cygnus
+      - CYGNUS_POSTGRESQL_ENABLE_CACHE=true
+      - CYGNUS_POSTGRESQL_SERVICE_PORT=5055
+      - CYGNUS_API_PORT=5080
+      - CYGNUS_LOG_LEVEL=INFO
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5080/v1/version || exit 1"]
+      interval: 20s
+      timeout: 10s
+      start_period: 30s
+      retries: 10
+
   webhook:
     build:
       context: ./notifications
@@ -216,20 +302,18 @@ services:
     container_name: idt-webhook
     restart: unless-stopped
     ports:
-      - "5050:5050"
+      - "5051:5050"
     environment:
       - LOG_LEVEL=info
       - ORION_URL=http://orion:1026
       - PERSEO_URL=http://perseo-fe:9090
       - WEBHOOK_URL=http://webhook:5050
+      - CYGNUS_URL=http://cygnus:5055
       - FIWARE_SERVICE=irfane
       - FIWARE_SERVICEPATH=/smartcity
     networks:
       - idt-net
 
-  # ─────────────────────────────────────────────────────────────
-  # Sensor Simulator -- Python (publishes to MQTT)
-  # ─────────────────────────────────────────────────────────────
   simulator:
     build:
       context: ./simulators
@@ -254,10 +338,88 @@ services:
     networks:
       - idt-net
 
+  # ─────────────────────────────────────────────────────────────
+  # Grafana -- time-series dashboards for city operators
+  # ─────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: idt-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=irfane2024
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-worldmap-panel
+    networks:
+      - idt-net
+    depends_on:
+      - postgres
+      - cratedb
+
+
+  # ─────────────────────────────────────────────────────────────
+  # Scorpio — NGSI-LD context broker (next-gen Orion)
+  # Runs alongside Orion-v2 for gradual migration
+  # Access: http://localhost:9090/ngsi-ld/v1/entities
+  # ─────────────────────────────────────────────────────────────
+  scorpio-postgres:
+    image: postgis/postgis:14-3.3-alpine
+    container_name: idt-scorpio-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=scorpio
+      - POSTGRES_PASSWORD=scorpio
+      - POSTGRES_DB=scorpio
+    volumes:
+      - scorpio-postgres-data:/var/lib/postgresql/data
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scorpio"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  scorpio:
+    image: scorpiobroker/all-in-one-runner:java-latest
+    container_name: idt-scorpio
+    restart: unless-stopped
+    ports:
+      - "9095:9090"
+    environment:
+      - DBHOST=scorpio-postgres
+      - DBPORT=5432
+      - DBNAME=scorpio
+      - DBUSER=scorpio
+      - DBPASS=scorpio
+      - LOG_LEVEL=INFO
+    depends_on:
+      scorpio-postgres:
+        condition: service_healthy
+    networks:
+      - idt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9090/q/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      start_period: 60s
+      retries: 10
+
+
 volumes:
   mongo-data:
-  timescale-data:
+  cratedb-data:
   mosquitto-data:
+  scorpio-postgres-data:
+  grafana-data:
+  postgres-data:
+  mysql-data:
 
 networks:
   idt-net:

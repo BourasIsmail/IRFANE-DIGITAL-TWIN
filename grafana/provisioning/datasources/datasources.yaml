@@ -1,0 +1,28 @@
+apiVersion: 1
+
+datasources:
+  - name: PostgreSQL (Cygnus Archive)
+    type: postgres
+    url: postgres:5432
+    user: cygnus
+    secureJsonData:
+      password: cygnus
+    jsonData:
+      database: cygnus
+      sslmode: disable
+      maxOpenConns: 10
+      postgresVersion: 1500
+      timescaledb: false
+    isDefault: true
+
+  - name: CrateDB (QuantumLeap)
+    type: postgres
+    url: cratedb:5432
+    user: crate
+    secureJsonData:
+      password: ""
+    jsonData:
+      database: doc
+      sslmode: disable
+      maxOpenConns: 5
+      postgresVersion: 1000

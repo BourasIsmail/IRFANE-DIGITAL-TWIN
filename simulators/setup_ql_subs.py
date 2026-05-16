@@ -1,154 +1,121 @@
 """
-Setup QuantumLeap subscriptions with staggered timing.
-Lets QL create each table before the next subscription fires.
+setup_ql_subs.py — Create Orion → QuantumLeap subscriptions for all entity types
+Run once after stack starts: docker exec idt-simulator python /app/setup_ql_subs.py
 """
-import os, sys, time, logging
-sys.path.insert(0, '/app')
 
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s -- %(message)s", datefmt="%H:%M:%S")
-log = logging.getLogger("setup_ql")
+import os, time, requests, logging
 
-os.environ.setdefault('ORION_URL',          'http://orion:1026')
-os.environ.setdefault('QL_URL',             'http://quantumleap:8668')
-os.environ.setdefault('FIWARE_SERVICE',     'irfane')
-os.environ.setdefault('FIWARE_SERVICEPATH', '/smartcity')
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(message)s", datefmt="%H:%M:%S")
+log = logging.getLogger("setup_ql_subs")
 
-import requests
+ORION_URL  = os.getenv("ORION_URL",  "http://orion:1026")
+QL_URL     = os.getenv("QL_URL",     "http://quantumleap:8668")
+SERVICE    = os.getenv("FIWARE_SERVICE",     "irfane")
+SPATH      = os.getenv("FIWARE_SERVICEPATH", "/smartcity")
 
-ORION_URL   = os.environ['ORION_URL']
-QL_URL      = os.environ['QL_URL']
-SERVICE     = os.environ['FIWARE_SERVICE']
-SERVICEPATH = os.environ['FIWARE_SERVICEPATH']
-
-GET_HEADERS = {"Fiware-Service": SERVICE}
-SUB_HEADERS = {"Content-Type": "application/json", "Fiware-Service": SERVICE}
+HEADERS_GET  = {"Fiware-Service": SERVICE, "Fiware-ServicePath": SPATH}
+HEADERS_POST = {**HEADERS_GET, "Content-Type": "application/json"}
 
 ENTITY_TYPES = [
-    "TrafficFlowObserved",
-    "Vehicle",
-    "WeatherObserved",
-    "GreenSpaceRecord",
+    # (type, attrs_to_track)
+    ("TrafficFlowObserved",        ["vehicleFlowRate", "averageVehicleSpeed", "congestionLevel", "occupancy"]),
+    ("Vehicle",                    ["speed", "vehicleRunningStatus", "passengerCount", "location", "nextStopName"]),
+    ("WeatherObserved",            ["temperature", "relativeHumidity", "windSpeed", "windDirection", "atmosphericPressure", "weatherType"]),
+    ("GreenSpaceRecord",           ["soilMoisture", "grassCondition", "ndviIndex", "soilTemperature", "needsIrrigation"]),
+    ("OffStreetParking",           ["availableSpotNumber", "occupiedSpotNumber", "occupancyRate", "status"]),
+    ("AirQualityObserved",         ["pm25", "pm10", "no2", "co", "o3", "airQualityIndex"]),
+    ("NoisePollutionObserved",     ["noiseLevel", "noisePeak", "noiseAverage", "noiseCategory"]),
+    ("StreetlightControlCabinet",  ["powerState", "intensity", "activeLamps", "energyConsumed", "powerFactor"]),
 ]
 
-def delete_all_ql_subs():
-    """Remove all existing QL subscriptions."""
-    r = requests.get(f"{ORION_URL}/v2/subscriptions", headers=GET_HEADERS, timeout=5)
-    for sub in r.json():
-        if "QL_sub" in sub.get("description", ""):
-            sid = sub["id"]
-            requests.delete(
-                f"{ORION_URL}/v2/subscriptions/{sid}",
-                headers=GET_HEADERS,
-                timeout=5
-            )
-            log.info(f"Deleted subscription: {sid} ({sub.get('description')})")
+def wait_for_service(url, name, retries=20, delay=5):
+    for i in range(retries):
+        try:
+            r = requests.get(url, timeout=5)
+            if r.status_code < 500:
+                log.info(f"{name} is ready")
+                return True
+        except Exception:
+            pass
+        log.warning(f"{name} not ready ({i+1}/{retries}), retrying in {delay}s...")
+        time.sleep(delay)
+    raise RuntimeError(f"{name} did not become ready")
 
-def create_sub(entity_type):
-    desc = f"QL_sub_{entity_type}"
+def delete_existing_ql_subs():
+    try:
+        r = requests.get(f"{ORION_URL}/v2/subscriptions", headers=HEADERS_GET, timeout=10)
+        subs = r.json()
+        ql_subs = [s for s in subs if "quantumleap" in s.get("notification", {}).get("http", {}).get("url", "").lower()
+                   or s.get("description", "").startswith("QL_")]
+        for sub in ql_subs:
+            requests.delete(f"{ORION_URL}/v2/subscriptions/{sub['id']}", headers=HEADERS_GET, timeout=5)
+            log.info(f"Deleted old QL subscription: {sub['id']} ({sub.get('description','')})")
+    except Exception as e:
+        log.warning(f"Could not clean old subscriptions: {e}")
+
+def create_ql_subscription(entity_type, attrs):
+    desc = f"QL_{entity_type}"
+
+    # Check if already exists
+    try:
+        r = requests.get(f"{ORION_URL}/v2/subscriptions", headers=HEADERS_GET, timeout=10)
+        if any(s.get("description") == desc for s in r.json()):
+            log.info(f"Subscription already exists: {desc}")
+            return
+    except Exception:
+        pass
+
     sub = {
         "description": desc,
         "subject": {
-            "entities":  [{"idPattern": ".*", "type": entity_type}],
-            "condition": {"attrs": []},
+            "entities": [{"idPattern": ".*", "type": entity_type}],
+            "condition": {"attrs": attrs},
         },
         "notification": {
-            "http":     {"url": f"{QL_URL}/v2/notify"},
-            "attrs":    [],
+            "http": {"url": f"{QL_URL}/v2/notify"},
+            "attrs": attrs,
             "metadata": ["dateCreated", "dateModified"],
         },
         "throttling": 1,
     }
-    r = requests.post(f"{ORION_URL}/v2/subscriptions", json=sub, headers=SUB_HEADERS, timeout=5)
-    if r.ok:
-        log.info(f"Created: {desc} -> {r.headers.get('Location')}")
-    else:
-        log.error(f"Failed: {desc} {r.status_code} {r.text}")
-    return r.ok
 
-def notify_ql(entity_type):
-    """Force a notification to QL to trigger table creation."""
-    r = requests.get(
-        f"{ORION_URL}/v2/entities?type={entity_type}&limit=1",
-        headers={**GET_HEADERS, "Fiware-ServicePath": SERVICEPATH},
-        timeout=5
-    )
-    entities = r.json()
-    if not entities:
-        log.warning(f"No entities of type {entity_type} to notify with")
-        return
-
-    # Patch an attribute to trigger the subscription
-    entity = entities[0]
-    eid = entity["id"]
-    patch_headers = {
-        "Content-Type":       "application/json",
-        "Fiware-Service":     SERVICE,
-        "Fiware-ServicePath": SERVICEPATH,
-    }
-    # Touch dateObserved to trigger notification
-    requests.patch(
-        f"{ORION_URL}/v2/entities/{requests.utils.quote(eid, safe='')}/attrs",
-        json={"dateObserved": {"type": "DateTime", "value": entity.get("dateObserved", {}).get("value", "2026-01-01T00:00:00Z")}},
-        headers=patch_headers,
-        timeout=5
-    )
-    log.info(f"Triggered notification for {entity_type} via {eid}")
-
-def wait_for_table(entity_type, retries=10, delay=3):
-    """Poll QL until the table for this entity type exists."""
-    ql_headers = {"Fiware-Service": SERVICE, "Fiware-ServicePath": SERVICEPATH}
-    # Get first entity id
-    r = requests.get(
-        f"{ORION_URL}/v2/entities?type={entity_type}&limit=1",
-        headers={**GET_HEADERS, "Fiware-ServicePath": SERVICEPATH},
-        timeout=5
-    )
-    entities = r.json()
-    if not entities:
-        return False
-    eid = entities[0]["id"]
-    
-    for i in range(retries):
-        try:
-            r = requests.get(
-                f"{QL_URL}/v2/entities/{requests.utils.quote(eid, safe='')}/attrs/dateObserved?lastN=1",
-                headers=ql_headers,
-                timeout=5
-            )
-            if r.status_code == 200:
-                log.info(f"Table ready for {entity_type}")
-                return True
-        except Exception:
-            pass
-        log.info(f"Waiting for {entity_type} table... ({i+1}/{retries})")
-        time.sleep(delay)
-    return False
+    try:
+        r = requests.post(f"{ORION_URL}/v2/subscriptions", json=sub, headers=HEADERS_POST, timeout=10)
+        if r.status_code == 201:
+            log.info(f"✓ Created QL subscription for {entity_type} (tracking {len(attrs)} attrs)")
+        else:
+            log.error(f"Failed {entity_type}: {r.status_code} {r.text}")
+    except Exception as e:
+        log.error(f"Error creating subscription for {entity_type}: {e}")
 
 def main():
-    log.info("=== QuantumLeap Subscription Setup ===")
+    log.info("=" * 55)
+    log.info("  Irfane Smart City — QuantumLeap Subscription Setup")
+    log.info("=" * 55)
 
-    # Step 1: Remove old subs
-    log.info("Removing existing QL subscriptions...")
-    delete_all_ql_subs()
-    time.sleep(2)
+    wait_for_service(f"{ORION_URL}/version",     "Orion")
+    wait_for_service(f"{QL_URL}/version",         "QuantumLeap")
 
-    # Step 2: Create one sub at a time, wait for table, then next
-    for entity_type in ENTITY_TYPES:
-        log.info(f"--- Setting up {entity_type} ---")
-        if create_sub(entity_type):
-            time.sleep(3)           # let subscription activate
-            notify_ql(entity_type)  # trigger first notification
-            wait_for_table(entity_type)
-        time.sleep(2)
+    log.info("Cleaning old QL subscriptions...")
+    delete_existing_ql_subs()
 
-    log.info("=== All QL subscriptions ready ===")
+    log.info(f"Creating subscriptions for {len(ENTITY_TYPES)} entity types...")
+    for entity_type, attrs in ENTITY_TYPES:
+        create_ql_subscription(entity_type, attrs)
+        time.sleep(0.5)
 
-    # Verify
-    r = requests.get(f"{ORION_URL}/v2/subscriptions", headers=GET_HEADERS, timeout=5)
-    ql_subs = [s for s in r.json() if "QL_sub" in s.get("description", "")]
-    log.info(f"Active QL subscriptions: {len(ql_subs)}")
-    for s in ql_subs:
-        log.info(f"  {s['description']} -- timesSent: {s['notification'].get('timesSent', 0)}")
+    # Summary
+    try:
+        r = requests.get(f"{ORION_URL}/v2/subscriptions", headers=HEADERS_GET, timeout=10)
+        ql_subs = [s for s in r.json() if s.get("description", "").startswith("QL_")]
+        log.info("=" * 55)
+        log.info(f"  {len(ql_subs)} QuantumLeap subscriptions active")
+        log.info(f"  Tracking {len(ENTITY_TYPES)} entity types")
+        log.info(f"  QL endpoint: {QL_URL}/v2/notify")
+        log.info(f"  CrateDB UI:  http://localhost:4200")
+        log.info("=" * 55)
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     main()

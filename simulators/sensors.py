@@ -239,3 +239,142 @@ class GreenSpaceSimulator:
             "name":                     sanitize(self.sensor["name"]),
             "dateObserved":             now_iso(),
         }
+
+
+# ── Parking simulator ─────────────────────────────────────────────────────────
+
+class ParkingSimulator:
+    def __init__(self, lot):
+        self.lot = lot
+        self._occupied = int(lot['capacity'] * random.uniform(0.3, 0.7))
+
+    def entity_id(self): return self.lot['id']
+    def entity_type(self): return 'OffStreetParking'
+
+    def generate(self):
+        mult = traffic_multiplier()
+        target = int(self.lot['capacity'] * clamp(gauss(mult * 0.85, 0.1), 0.05, 0.99))
+        self._occupied = clamp(self._occupied + random.randint(-3, 3), 0, self.lot['capacity'])
+        self._occupied = int(self._occupied * 0.9 + target * 0.1)
+        available = self.lot['capacity'] - self._occupied
+        status = 'full' if available == 0 else 'almostFull' if available < 10 else 'open'
+        return {
+            'name':                 self.lot['name'],
+            'totalSpotNumber':      self.lot['capacity'],
+            'availableSpotNumber':  available,
+            'occupiedSpotNumber':   self._occupied,
+            'occupancyRate':        round(self._occupied / self.lot['capacity'], 3),
+            'status':               status,
+            'location':             f"{self.lot['lat']},{self.lot['lon']}",
+            'dateObserved':         now_iso(),
+        }
+
+
+# ── Air quality simulator ─────────────────────────────────────────────────────
+
+class AirQualitySimulator:
+    def __init__(self, sensor):
+        self.sensor = sensor
+        self._pm25 = gauss(15, 5)
+        self._co   = gauss(0.5, 0.1)
+
+    def entity_id(self): return self.sensor['id']
+    def entity_type(self): return 'AirQualityObserved'
+
+    def generate(self):
+        h = hour_of_day()
+        traffic_factor = 1.0 + traffic_multiplier() * 0.8
+        self._pm25 = clamp(self._pm25 + gauss(0, 1.5), 2.0, 80.0) * traffic_factor
+        self._co   = clamp(self._co   + gauss(0, 0.05), 0.1, 5.0) * traffic_factor
+        no2   = clamp(gauss(20 * traffic_factor, 5), 5.0, 200.0)
+        o3    = clamp(gauss(60, 10) + (10 if 10 <= h <= 16 else 0), 10.0, 180.0)
+        pm10  = clamp(self._pm25 * gauss(1.8, 0.2), 5.0, 150.0)
+
+        pm25_v = round(self._pm25, 1)
+        if   pm25_v < 12:  aqi = 'good'
+        elif pm25_v < 35:  aqi = 'moderate'
+        elif pm25_v < 55:  aqi = 'unhealthySensitive'
+        else:              aqi = 'unhealthy'
+
+        return {
+            'name':         self.sensor['name'],
+            'pm25':         pm25_v,
+            'pm10':         round(pm10, 1),
+            'no2':          round(no2, 1),
+            'co':           round(self._co, 2),
+            'o3':           round(o3, 1),
+            'airQualityIndex': aqi,
+            'location':     f"{self.sensor['lat']},{self.sensor['lon']}",
+            'dateObserved': now_iso(),
+        }
+
+
+# ── Noise simulator ───────────────────────────────────────────────────────────
+
+class NoiseSimulator:
+    def __init__(self, sensor):
+        self.sensor = sensor
+
+    def entity_id(self): return self.sensor['id']
+    def entity_type(self): return 'NoisePollutionObserved'
+
+    def generate(self):
+        h = hour_of_day()
+        base = 35.0
+        if    6 <= h < 8:  base = 52
+        elif  8 <= h < 10: base = 62
+        elif 10 <= h < 12: base = 60
+        elif 12 <= h < 14: base = 63
+        elif 14 <= h < 17: base = 58
+        elif 17 <= h < 20: base = 65
+        elif 20 <= h < 22: base = 52
+        else:               base = 38
+
+        traffic_boost = traffic_multiplier() * 8
+        level = clamp(gauss(base + traffic_boost, 3), 30.0, 90.0)
+
+        if   level < 45: category = 'quiet'
+        elif level < 55: category = 'moderate'
+        elif level < 65: category = 'loud'
+        else:            category = 'veryLoud'
+
+        return {
+            'name':          self.sensor['name'],
+            'noiseLevel':    round(level, 1),
+            'noisePeak':     round(level + gauss(5, 2), 1),
+            'noiseAverage':  round(level - gauss(3, 1), 1),
+            'noiseCategory': category,
+            'location':      f"{self.sensor['lat']},{self.sensor['lon']}",
+            'dateObserved':  now_iso(),
+        }
+
+
+# ── Street lighting simulator ─────────────────────────────────────────────────
+
+class LightingSimulator:
+    def __init__(self, cabinet):
+        self.cabinet = cabinet
+
+    def entity_id(self): return self.cabinet['id']
+    def entity_type(self): return 'StreetlightControlCabinet'
+
+    def generate(self):
+        h = hour_of_day()
+        on = (h >= 19 or h < 7)
+        dimmed = on and (1 <= h < 5)
+        level = 100 if on and not dimmed else (40 if dimmed else 0)
+        poles = self.cabinet['poles']
+        active = poles if on else 0
+        energy = round(active * 0.15 * (level / 100) + gauss(0, 0.05), 2)
+
+        return {
+            'name':               self.cabinet['name'],
+            'powerState':         'on' if on else 'off',
+            'intensity':          level,
+            'activeLamps':        active,
+            'totalLamps':         poles,
+            'energyConsumed':     max(0, energy),
+            'powerFactor':        round(clamp(gauss(0.92, 0.02), 0.85, 1.0), 2),
+            'location':           f"{self.cabinet['lat']},{self.cabinet['lon']}",
+            'dateObserved':       now_iso(),
+        }
