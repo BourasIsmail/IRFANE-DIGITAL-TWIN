@@ -218,7 +218,7 @@ services:
       - IDM_DB_NAME=idm
       - IDM_DB_USER=idm
       - IDM_DB_PASS=idm_pass
-      - IDM_HOST=http://localhost:3005
+      - IDM_HOST=http://194.163.185.94:3005
       - IDM_PORT=3005
       - IDM_HTTPS_ENABLED=false
       - IDM_CORS_ENABLED=true
